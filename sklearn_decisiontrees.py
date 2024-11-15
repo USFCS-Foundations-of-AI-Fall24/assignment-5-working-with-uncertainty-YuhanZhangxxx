@@ -1,137 +1,115 @@
-
-from sklearn.datasets import load_iris
-from sklearn import tree
-from sklearn.model_selection import KFold
-from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier
 import pandas as pd
-from sklearn.model_selection import GridSearchCV, KFold
-import joblib
-
-
-### This code shows how to use KFold to do cross_validation.
-### This is just one of many ways to manage training and test sets in sklearn.
-
-iris = load_iris()
-X, y = iris.data, iris.target
-scores = []
-kf = KFold(n_splits=5)
-for train_index, test_index in kf.split(X) :
-    X_train, X_test, y_train, y_test = \
-        (X[train_index], X[test_index], y[train_index], y[test_index])
-    clf = tree.DecisionTreeClassifier()
-    clf.fit(X_train, y_train)
-    scores.append(clf.score(X_test, y_test))
-
-print(scores)
-
-## Part 2. This code (from https://scikit-learn.org/1.5/auto_examples/ensemble/plot_forest_hist_grad_boosting_comparison.html)
-## shows how to use GridSearchCV to do a hyperparameter search to compare two techniques.
-from sklearn.datasets import load_breast_cancer
-
-X,y = load_breast_cancer(return_X_y=True, as_frame=True)
-
-N_CORES = joblib.cpu_count(only_physical_cores=True)
-print(f"Number of physical cores: {N_CORES}")
-
-models = {
-    "Random Forest": RandomForestClassifier(
-        min_samples_leaf=5, random_state=0, n_jobs=N_CORES
-    ),
-    "Hist Gradient Boosting": HistGradientBoostingClassifier(
-        max_leaf_nodes=15, random_state=0, early_stopping=False
-    ),
-}
-param_grids = {
-    "Random Forest": {"n_estimators": [10, 20, 50, 100]},
-    "Hist Gradient Boosting": {"max_iter": [10, 20, 50, 100, 300, 500]},
-}
-cv = KFold(n_splits=2, shuffle=True, random_state=0)
-
-results = []
-for name, model in models.items():
-    grid_search = GridSearchCV(
-        estimator=model,
-        param_grid=param_grids[name],
-        return_train_score=True,
-        cv=cv,
-    ).fit(X, y)
-    result = {"model": name, "cv_results": pd.DataFrame(grid_search.cv_results_)}
-    results.append(result)
-
-print(results)
-
-#### Part 3: This shows how to generate a scatter plot of your results
-
-import plotly.colors as colors
+import matplotlib.pyplot as plt
 import plotly.express as px
-from plotly.subplots import make_subplots
+from sklearn.datasets import load_wine, load_breast_cancer
+from sklearn.model_selection import KFold, GridSearchCV
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier
 
-fig = make_subplots(
-    rows=1,
-    cols=2,
-    shared_yaxes=True,
-    subplot_titles=["Train time vs score", "Predict time vs score"],
-)
-model_names = [result["model"] for result in results]
-colors_list = colors.qualitative.Plotly * (
-    len(model_names) // len(colors.qualitative.Plotly) + 1
-)
+def decision_tree_cross_validation():
+    wine = load_wine()
+    X, y = wine.data, wine.target
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    scores = []
 
-for idx, result in enumerate(results):
-    cv_results = result["cv_results"].round(3)
-    model_name = result["model"]
-    param_name = list(param_grids[model_name].keys())[0]
-    cv_results[param_name] = cv_results["param_" + param_name]
-    cv_results["model"] = model_name
+    for train_idx, test_idx in kf.split(X):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
 
-    scatter_fig = px.scatter(
-        cv_results,
-        x="mean_fit_time",
-        y="mean_test_score",
-        error_x="std_fit_time",
-        error_y="std_test_score",
-        hover_data=param_name,
-        color="model",
-    )
-    line_fig = px.line(
-        cv_results,
-        x="mean_fit_time",
-        y="mean_test_score",
-    )
+        clf = DecisionTreeClassifier()
+        clf.fit(X_train, y_train)
+        score = clf.score(X_test, y_test)
+        scores.append(score)
 
-    scatter_trace = scatter_fig["data"][0]
-    line_trace = line_fig["data"][0]
-    scatter_trace.update(marker=dict(color=colors_list[idx]))
-    line_trace.update(line=dict(color=colors_list[idx]))
-    fig.add_trace(scatter_trace, row=1, col=1)
-    fig.add_trace(line_trace, row=1, col=1)
+    print(f"Cross-validation scores: {scores}")
 
-    scatter_fig = px.scatter(
-        cv_results,
-        x="mean_score_time",
-        y="mean_test_score",
-        error_x="std_score_time",
-        error_y="std_test_score",
-        hover_data=param_name,
-    )
-    line_fig = px.line(
-        cv_results,
-        x="mean_score_time",
-        y="mean_test_score",
-    )
+def random_forest_grid_search():
+    wine = load_wine()
+    X, y = wine.data, wine.target
+    n_estimators_list = [10, 25, 50]
+    criteria = ['gini', 'entropy']
+    results = []
 
-    scatter_trace = scatter_fig["data"][0]
-    line_trace = line_fig["data"][0]
-    scatter_trace.update(marker=dict(color=colors_list[idx]))
-    line_trace.update(line=dict(color=colors_list[idx]))
-    fig.add_trace(scatter_trace, row=1, col=2)
-    fig.add_trace(line_trace, row=1, col=2)
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-fig.update_layout(
-    xaxis=dict(title="Train time (s) - lower is better"),
-    yaxis=dict(title="Test R2 score - higher is better"),
-    xaxis2=dict(title="Predict time (s) - lower is better"),
-    legend=dict(x=0.72, y=0.05, traceorder="normal", borderwidth=1),
-    title=dict(x=0.5, text="Speed-score trade-off of tree-based ensembles"),
-)
-fig.show()
+    for criterion in criteria:
+        for n_estimators in n_estimators_list:
+            scores = []
+
+            for train_idx, test_idx in kf.split(X):
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train, y_test = y[train_idx], y[test_idx]
+
+                clf = RandomForestClassifier(n_estimators=n_estimators,
+                                             criterion=criterion,
+                                             random_state=42)
+                clf.fit(X_train, y_train)
+                score = clf.score(X_test, y_test)
+                scores.append(score)
+
+            avg_score = sum(scores) / len(scores)
+            results.append({
+                'Criterion': criterion,
+                'Estimators': n_estimators,
+                'Scores': scores,
+                'Average Score': avg_score
+            })
+
+    df_results = pd.DataFrame(results)
+    df_results['Average Score'] = df_results['Average Score'].round(4)
+
+    table = df_results[['Criterion', 'Estimators', 'Average Score']]
+    print(table)
+
+    fig, ax = plt.subplots(figsize=(6, 2))
+    ax.axis('off')
+    ax.table(cellText=table.values, colLabels=table.columns, loc='center')
+    plt.tight_layout()
+    plt.savefig('random_forest_results.png', dpi=300)
+    plt.show()
+
+def hyperparameter_search_comparison():
+    X, y = load_breast_cancer(return_X_y=True, as_frame=True)
+
+    models = {
+        "Random Forest": RandomForestClassifier(random_state=0),
+        "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=0, early_stopping=False)
+    }
+
+    param_grids = {
+        "Random Forest": {"n_estimators": [5, 10, 15, 20]},
+        "Hist Gradient Boosting": {"max_iter": [25, 50, 75, 100]}
+    }
+
+    cv = KFold(n_splits=5, shuffle=True, random_state=0)
+    all_results = pd.DataFrame()
+
+    for name, model in models.items():
+        grid_search = GridSearchCV(estimator=model,
+                                   param_grid=param_grids[name],
+                                   cv=cv,
+                                   return_train_score=True)
+        grid_search.fit(X, y)
+
+        cv_results_df = pd.DataFrame(grid_search.cv_results_)
+        cv_results_df['model'] = name
+        all_results = pd.concat([all_results, cv_results_df], ignore_index=True)
+
+    rf_results = all_results[all_results['model'] == 'Random Forest']
+    rf_results.loc[:, 'n_estimators'] = rf_results['param_n_estimators'].astype(int)
+    fig_rf = px.scatter(rf_results, x='n_estimators', y='mean_test_score',
+                        title='Random Forest Performance',
+                        labels={'n_estimators': 'Number of Estimators', 'mean_test_score': 'Mean Test Score'})
+    fig_rf.show()
+
+    hgb_results = all_results[all_results['model'] == 'Hist Gradient Boosting']
+    hgb_results.loc[:, 'max_iter'] = hgb_results['param_max_iter'].astype(int)
+    fig_hgb = px.scatter(hgb_results, x='max_iter', y='mean_test_score',
+                         title='Histogram Gradient Boosting Performance',
+                         labels={'max_iter': 'Number of Iterations', 'mean_test_score': 'Mean Test Score'})
+    fig_hgb.show()
+
+if __name__ == "__main__":
+    decision_tree_cross_validation()
+    random_forest_grid_search()
+    hyperparameter_search_comparison()
